@@ -1,0 +1,27 @@
+tr {
+    height: 180px;
+}
+
+td {
+    font-size: 128px;
+    border: 1px solid black;
+    min-width: 180px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.center {
+    margin: auto;
+    width: 50%;
+    padding: 10px;
+}
+
+.vertical-center {
+    min-height: 100%;
+    /* Fallback for browsers do NOT support vh unit */
+    min-height: 100vh;
+    /* These two lines are counted as one :-)       */
+
+    display: flex;
+    align-items: center;
+}

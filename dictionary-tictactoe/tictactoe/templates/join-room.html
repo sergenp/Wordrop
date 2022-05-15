@@ -1,0 +1,29 @@
+{% load static %}
+
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+
+<body>
+    <div class="jumbotron vertical-center">
+        <div class="container">
+            <div class="row">
+                <div class="d-grid gap-4 col-6 mx-auto">
+                    <input id="room_id" type="text" class="fs-2 p-3" placeholder="Enter Room Name" value="{{room_id}}"></input>
+                    <button id="join-game" type="button" class="btn btn-primary btn-lg btn-block fs-1 fw-bold">Join
+                        Room</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var but = document.querySelector("#join-game")
+        var inp = document.querySelector("#room_id")
+        but.onclick = () => {
+            window.location.href = "/room/" + inp.value + "/"
+        }
+    </script>
+</body>
