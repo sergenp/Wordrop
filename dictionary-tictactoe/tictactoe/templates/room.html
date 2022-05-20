@@ -12,67 +12,85 @@
 </head>
 
 <body>
-    <table id="tictactoe-table" class="center">
-        <tr>
-            <td id="td1"></td>
-            <td id="td2"></td>
-            <td id="td3"></td>
-        </tr>
-        <tr>
-            <td id="td4"></td>
-            <td id="td5"></td>
-            <td id="td6"></td>
-        </tr>
-        <tr>
-            <td id="td7"></td>
-            <td id="td8"></td>
-            <td id="td9"></td>
-        </tr>
-    </table>
+    <table id="dictionary-table" class="center"></table>
+    <table id="palette-table"></table>
     <div>
-        <p id="current_turn"></p> <br />
-        <p id="winner"></p><br />
-        <p id="play_as"></p>
+        <h2>Selected Letter: </h2>
+        <h1 style="font-size:192px" id="selectedLetter"></h1>
     </div>
 
+    <script src={% static 'js/util.js' %}></script>
+    
     <script>
-        function listToMatrix(list, elementsPerSubArray) {
-            var matrix = [], i, k;
-
-            for (i = 0, k = -1; i < list.length; i++) {
-                if (i % elementsPerSubArray === 0) {
-                    k++;
-                    matrix[k] = [];
-                }
-
-                matrix[k].push(list[i]);
+        class Player{
+            constructor(roomSocket, name) {
+                this.roomSocket = roomSocket
+                this.name = name
+            }
+            
+            set palette(palette) {
+                this._palette = palette
+                this.syncPaletteData()
             }
 
-            return matrix;
+            set letter(letter) {
+                if (this._palette.includes(letter)){
+                    this._selectedLetter = letter
+                    this.updateSelectedLetterHtml()
+                }
+            }
+
+            sendLetter(x, y) {                
+                this.roomSocket.send(JSON.stringify({ "type": 100, "x": x, "y": y, "letter" : this._selectedLetter}))
+            }
+            
+            updateSelectedLetterHtml() {
+                document.querySelector("#selectedLetter").innerHTML = this._selectedLetter
+            }            
+
+            syncPaletteData() {
+                var row_by_colums_palette_tds = listToMatrix(document.querySelectorAll("#palette-table * > td"), 5)
+                let palette = listToMatrix(this._palette, 5)
+                var i, j;
+                for (i = 0; i < row_by_colums_palette_tds.length; i++) {
+                    for (j = 0; j < row_by_colums_palette_tds[i].length; j++) {
+                        row_by_colums_palette_tds[i][j].innerHTML = palette[i][j]
+                        addSelectLetterEmitter(this, row_by_colums_palette_tds[i][j], row_by_colums_palette_tds[i][j].innerHTML)
+                    }
+                }
+            }
         }
 
-        var tds = document.querySelectorAll("table * > td") // 1x9
-        var winner_p = document.querySelector("#winner")
-        var play_as_p = document.querySelector("#play_as")
-        var current_turn_p = document.querySelector("#current_turn")
-        var three_by_three_tds = listToMatrix(tds, 3)
+        createTable("dictionary-table", 10,10)
+        createTable("palette-table", 2, 5)
+
+
+        var tds = document.querySelectorAll("#dictionary-table * > td")
+        var row_by_column_tds = listToMatrix(tds, 10)
+
+        var player;
 
         function syncGameData(game_data) {
             var i, j;
-            for (i = 0; i < three_by_three_tds.length; i++) {
-                for (j = 0; j < three_by_three_tds[i].length; j++) {
-                    three_by_three_tds[i][j].innerHTML = game_data[i][j]
+            for (i = 0; i < row_by_column_tds.length; i++) {
+                for (j = 0; j < row_by_column_tds[i].length; j++) {
+                    row_by_column_tds[i][j].innerHTML = game_data[i][j]
                 }
             }
         }
 
-        function addEmitters(roomSocket, td, x, y) {
-            td.onclick = () => roomSocket.send(JSON.stringify({ "type": 100, "x": x, "y": y }))
+        function addEmitters(player, td, x, y) {
+            td.onclick = () => player.sendLetter(x,y)
         }
 
+        function addSelectLetterEmitter(player, td, letter) {
+            td.onclick = () => player.letter = letter
+        }
+
+        var wsStart = window.location.protocol == 'https:' ? 'wss://' : 'ws://'
 
         const roomSocket = new WebSocket(
-            'wss://'
+            wsStart
             + window.location.host
             + '/ws/room/'
             + "{{room_name}}"
@@ -81,32 +99,31 @@
 
         roomSocket.onmessage = (e) => {
             var data = JSON.parse(e.data)
-
             console.log(data)
-            if (data["type"] == 20 || data["type"] == 100) {
-                parsed_text = JSON.parse(data["message"]["text"])
-                game_data = parsed_text["game_state"]
-                current_turn = parsed_text["current_turn"]
-                current_turn_p.innerHTML = "Current Turn : " + current_turn
-                winner_p.innerHTML = ""
+
+            if (data["type"] == 0) {
+                player = new Player(roomSocket, data["message"]["player"])
+                player.palette = data["message"]["palette"]
+                
+                for (var x = 0; x < row_by_column_tds.length; x++) {
+                    for (var y = 0; y < row_by_column_tds[x].length; y++) {
+                        addEmitters(player, row_by_column_tds[x][y], x, y)
+                    }
+                }
+            }
+            else if (data["type"] == 20 || data["type"] == 100) {
+                game_data = data["message"]["text"]["game_state"]
                 syncGameData(game_data)
             }
             else if (data["type"] == 30) {
-                winner_p.innerHTML = "Winner : " + data["message"]["winner"]
-                current_turn_p.innerHTML = ""
+                // winner_p.innerHTML = "Winner : " + data["message"]["winner"]
             }
 
-            else if (data["type"] == 0) {
-                play_as_p.innerHTML = "You play as : " + data["message"]["player"]
+            else if (data["type"] == 200) {
+                player.palette = data["message"]["palette"]
             }
         };
         roomSocket.onclose = (e) => { console.log(e) };
-
-        for (var x = 0; x < three_by_three_tds.length; x++) {
-            for (var y = 0; y < three_by_three_tds[x].length; y++) {
-                addEmitters(roomSocket, three_by_three_tds[x][y], x, y)
-            }
-        }
     </script>
 </body>
 

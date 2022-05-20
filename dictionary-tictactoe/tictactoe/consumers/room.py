@@ -1,9 +1,10 @@
 import enum
 import json
-import random
-from typing import List, Literal
+from typing import Literal
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from tictactoe.util.matrix import create_empty_grid
+from tictactoe.util.palette import generate_random_palette
 
 
 class PlayerState(int, enum.Enum):
@@ -14,42 +15,53 @@ class PlayerState(int, enum.Enum):
 class RoomState(int, enum.Enum):
     IN_LOBBY = 10
     GAME_STARTED = 20
+    GAME_IN_PROGRESS = 21
     GAME_ENDED = 30
     GAME_ABORTED = 40
 
 
 class GameStateEnum(int, enum.Enum):
     GAME_STATE_SYNC = 100
+    PALETTE_SYNC = 200
 
 
 game_states = {}
 
 
 class GameState:
-    def __init__(self) -> None:
-        self.game_state = [["", "", ""], ["", "", ""], ["", "", ""]]
+    def __init__(self, **options) -> None:
+        self.options = options
+        self.game_state = create_empty_grid(
+            self.options.get("grid_size", 10), self.options.get("grid_size", 10)
+        )
         self.room_state = RoomState.IN_LOBBY
         self.players = []
-        self.current_turn = random.choice(["X", "O"])
-        self.open_slots = ["X", "O"]
 
     def to_json(self) -> dict:
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
     def change_room_state(
-        self, state: Literal[RoomState.GAME_ENDED, RoomState.GAME_STARTED, RoomState.IN_LOBBY]
+        self,
+        state: Literal[
+            RoomState.IN_LOBBY,
+            RoomState.GAME_STARTED,
+            RoomState.GAME_IN_PROGRESS,
+            RoomState.GAME_ENDED,
+            RoomState.GAME_ABORTED,
+        ],
     ):
         """Changes the self.room_state to state
 
         Args:
-            state (Literal[RoomState.GAME_ENDED, RoomState.GAME_STARTED, RoomState.IN_LOBBY]):
-                State of the room that you want to self.room_state to be in
+            state (Literal[ RoomState.IN_LOBBY, RoomState.GAME_STARTED, RoomState.GAME_IN_PROGRESS, RoomState.GAME_ENDED, RoomState.GAME_ABORTED, ]): State of the room that you want to self.room_state to be in
         """
         self.room_state = state
 
     def reset_game_state(self):
         """Resets game state back to it's original state"""
-        self.game_state = [["", "", ""], ["", "", ""], ["", "", ""]]
+        self.game_state = create_empty_grid(
+            self.options.get("grid_size", 10), self.options.get("grid_size", 10)
+        )
 
     def create_player(self, player_id: str) -> dict:
         """Create nad adds the player to the player list and returns the added player dict
@@ -60,9 +72,14 @@ class GameState:
         Returns:
             dict: Added player data
         """
-        tictac = random.choice(self.open_slots)
-        player = {"player": player_id, "tictactoe": tictac}
-        self.open_slots.remove(tictac)
+        # don't add new players if the game is started
+        if self.room_state == RoomState.GAME_STARTED:
+            return
+
+        player = {
+            "player": player_id,
+            "palette": generate_random_palette(self.options.get("palette_size", 10)),
+        }
         self.players.append(player)
 
         if len(self.players) == 2:
@@ -86,56 +103,11 @@ class GameState:
         else:
             # reset the game state and put the game state back in lobby
             # if a player is removed from the game
+            # TODO: maybe not reset the game state and continue from there?
             self.change_room_state(RoomState.IN_LOBBY)
             self.reset_game_state()
-            # add the open slot back
-            self.open_slots.append(removed_player["tictactoe"])
 
         return removed_player
-
-    @staticmethod
-    def check_equals(lst: List[str]) -> bool:
-        """Checks if every element in a list is equal, if the first element's length is greater than 0
-
-        Args:
-            lst (List[str]): list to check
-
-        Returns:
-            bool: Returns True if first element is the same as the rest of the elements, and its length is greater than 0
-        """
-        lst_data = [x == lst[0] for x in lst if len(lst[0]) > 0]
-        return lst_data and all(lst_data)
-
-    def check_rows(self) -> bool:
-        """Checks rows of the game state
-
-        Returns:
-            bool: Returns true if one of the rows have the same elements
-        """
-        for row in self.game_state:
-            if GameState.check_equals(row):
-                return True
-
-    def check_columns(self) -> bool:
-        """Checks columns of the game state
-
-        Returns:
-            bool: Returns true if one of the cols have the same elements
-        """
-        for i in range(len(self.game_state)):
-            col = [row[i] for row in self.game_state]
-            if GameState.check_equals(col):
-                return True
-
-    def check_diagonals(self) -> bool:
-        """Checks diagonals of the game state
-
-        Returns:
-            bool: Returns true if one of the diagonals have the same elements
-        """
-        first_diag = [r[i] for i, r in enumerate(self.game_state)]
-        second_diag = [r[-i - 1] for i, r in enumerate(self.game_state)]
-        return GameState.check_equals(first_diag) or GameState.check_equals(second_diag)
 
     def check_for_game_finish(self) -> bool:
         """Checks if the game is over
@@ -143,41 +115,27 @@ class GameState:
         Returns:
             bool: Returns true if one of the diagonals, columns or rows have the same elements
         """
-        return self.check_rows() or self.check_columns() or self.check_diagonals()
+        # TODO: game end logic
+        return False
 
-    def is_players_turn(self, player_id: str) -> bool:
-        """Figures out if the given player_id has this turn
-
-        Args:
-            player (str): player_id
-
-        Returns:
-            bool: Returns True if it's the player turn
-        """
-        player = next(x for x in self.players if player_id == x.get("player"))
-        return self.current_turn == player["tictactoe"]
-
-    def update_game(self, x: int, y: int, player: str) -> bool:
+    def update_game(self, x: int, y: int, player: str, letter: str) -> bool:
         """Updates the game state based on the coordinations
 
         Args:
             x (int): x coordination of the 2x2 array that you wanna put X or O in
             y (int): y coordination of the 2x2 array that you wanna put X or O in
             player (str): player that's trying to update the game
-
+            letter (str) : player's letter
         Returns:
             bool: Returns True if game is updated successfully, False if not.
         """
         player = next(x for x in self.players if player == x.get("player"))
-        # if there is something at the spot of the [x][y],
-        # or if it isn't player's turn, return False
-        if player["tictactoe"] != self.current_turn or self.game_state[x][y]:
+        # if there is something at the spot of the [x][y], return False
+        if self.game_state[x][y] or not (letter in player["palette"]):
             return False
 
-        # else put the tictactoe
-        self.game_state[x][y] = player["tictactoe"]
-        # switch the turn
-        self.current_turn = "X" if self.current_turn == "O" else "O"
+        # else put the letter
+        self.game_state[x][y] = letter
         return True
 
 
@@ -193,20 +151,22 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             game_state = GameState()
             game_states[self.room_group_name] = game_state
 
-        if game_state.room_state not in [RoomState.IN_LOBBY]:
+        if game_state.room_state not in [RoomState.IN_LOBBY, RoomState.GAME_ENDED]:
             # if the game is started or ended,
             # don't accept anymore connections to this room
             await self.close()
             return
-
-        # if there is a game state present, add the other player
+        # add the player
         player = game_state.create_player(self.channel_name)
         # Join room if game is still in lobby
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
         await self.send_json(
-            {"type": PlayerState.JOINED, "message": {"player": player["tictactoe"]}}
+            {
+                "type": PlayerState.JOINED,
+                "message": {"player": player["player"], "palette": player["palette"]},
+            }
         )
 
         if game_state.room_state == RoomState.GAME_STARTED:
@@ -222,7 +182,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, close_code):
         game_state: GameState = game_states[self.room_group_name]
         game_state.remove_player(self.channel_name)
-        # if we remove both players, room_state becomes GAME_ENDED
+        # if we remove both players, room_state becomes GAME_ABORTED
         if game_state.room_state == RoomState.GAME_ABORTED:
             # if the game ends this way, delete the game from our
             # game dictionary
@@ -239,11 +199,10 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         if (
             msg_type == GameStateEnum.GAME_STATE_SYNC
             and game_state.room_state == RoomState.GAME_STARTED
-            and game_state.is_players_turn(self.channel_name)
         ):
             # send received message to room
-            x, y = int(payload["x"]), int(payload["y"])
-            is_updated = game_state.update_game(x, y, self.channel_name)
+            x, y, letter = int(payload["x"]), int(payload["y"]), payload["letter"]
+            is_updated = game_state.update_game(x, y, self.channel_name, letter)
             is_finished = game_state.check_for_game_finish()
             game_data = game_state.to_json()
 
@@ -257,13 +216,11 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
                 )
 
             if is_finished:
-                # winner is the opposite of the current turn
-                winner = "X" if game_state.current_turn == "O" else "O"
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
                         "type": "notify_game_ended",
-                        "message": {"winner": winner},
+                        "message": {"winner": self.channel_name},
                     },
                 )
                 game_state.change_room_state(RoomState.GAME_ENDED)
