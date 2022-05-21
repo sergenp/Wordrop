@@ -1,10 +1,16 @@
 import enum
-import json
 from typing import Literal
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from tictactoe.util.matrix import create_empty_grid
-from tictactoe.util.palette import generate_random_palette
+from django.conf import settings
+from tictactoe.util.matrix import (
+    create_grid,
+    get_backward_diagonals,
+    get_cols,
+    get_forward_diagonals,
+    get_rows,
+)
+from tictactoe.util.palette import check_if_word, generate_random_palette
 
 
 class PlayerState(int, enum.Enum):
@@ -31,7 +37,7 @@ game_states = {}
 class GameState:
     def __init__(self, **options) -> None:
         self.options = options
-        self.game_state = create_empty_grid(
+        self.game_state = create_grid(
             self.options.get("grid_size", 10), self.options.get("grid_size", 10)
         )
         self.room_state = RoomState.IN_LOBBY
@@ -59,7 +65,7 @@ class GameState:
 
     def reset_game_state(self):
         """Resets game state back to it's original state"""
-        self.game_state = create_empty_grid(
+        self.game_state = create_grid(
             self.options.get("grid_size", 10), self.options.get("grid_size", 10)
         )
 
@@ -116,6 +122,22 @@ class GameState:
             bool: Returns true if one of the diagonals, columns or rows have the same elements
         """
         # TODO: game end logic
+        backward_diagonals = get_backward_diagonals(self.game_state)
+        forward_diagonals = get_forward_diagonals(self.game_state)
+        rows = get_rows(self.game_state)
+        cols = get_cols(self.game_state)
+
+        word_size = self.options.get("word_size", 5)
+
+        for row in rows:
+            for i in range(len(row)):
+                # take wordsize by wordsize
+                if i + word_size > len(row):
+                    break
+                word = "".join(row[i : i + word_size])
+                if word and len(word) == word_size and check_if_word(word):
+                    return True
+
         return False
 
     def update_game(self, x: int, y: int, player: str, letter: str) -> bool:

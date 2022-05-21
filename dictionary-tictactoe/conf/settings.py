@@ -75,6 +75,8 @@ TEMPLATES = [
 ]
 
 ASGI_APPLICATION = "conf.asgi.application"
+
+# TODO change this to redis
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer",

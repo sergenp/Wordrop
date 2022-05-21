@@ -68,8 +68,7 @@
         var tds = document.querySelectorAll("#dictionary-table * > td")
         var row_by_column_tds = listToMatrix(tds, 10)
 
-        var player;
-
+        
         function syncGameData(game_data) {
             var i, j;
             for (i = 0; i < row_by_column_tds.length; i++) {
@@ -78,31 +77,34 @@
                 }
             }
         }
-
+        
         function addEmitters(player, td, x, y) {
             td.onclick = () => player.sendLetter(x,y)
         }
-
+        
         function addSelectLetterEmitter(player, td, letter) {
             td.onclick = () => player.letter = letter
         }
-
+        
         var wsStart = window.location.protocol == 'https:' ? 'wss://' : 'ws://'
-
+        
         const roomSocket = new WebSocket(
             wsStart
             + window.location.host
             + '/ws/room/'
             + "{{room_name}}"
             + '/'
-        );
+            );
+            
+        var player = new Player(roomSocket, "");
+
 
         roomSocket.onmessage = (e) => {
             var data = JSON.parse(e.data)
             console.log(data)
 
             if (data["type"] == 0) {
-                player = new Player(roomSocket, data["message"]["player"])
+                player.name = data["message"]["player"]
                 player.palette = data["message"]["palette"]
                 
                 for (var x = 0; x < row_by_column_tds.length; x++) {
