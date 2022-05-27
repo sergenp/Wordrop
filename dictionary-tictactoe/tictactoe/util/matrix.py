@@ -24,31 +24,9 @@ def create_grid(rows: int, cols: int, letter_chance=5) -> list:
     return M
 
 
-def get_column(column: int, grid: list) -> list:
-    """Gets the column as a 1xN list for given NxN matrix
-
-    Args:
-        column (int): column number
-        matrix (list): matrix
-    """
-    return [row[column] for row in grid]
-
-
 def get_cols(grid: list) -> list:
     return zip(*grid)
 
 
 def get_rows(grid: list) -> list:
     return [[c for c in r] for r in grid]
-
-
-def get_backward_diagonals(grid: list) -> list:
-    b = [None] * (len(grid) - 1)
-    grid = [b[i:] + r + b[:i] for i, r in enumerate(get_rows(grid))]
-    return [[c for c in r if c is not None] for r in get_cols(grid)]
-
-
-def get_forward_diagonals(grid: list) -> list:
-    b = [None] * (len(grid) - 1)
-    grid = [b[:i] + r + b[i:] for i, r in enumerate(get_rows(grid))]
-    return [[c for c in r if c is not None] for r in get_cols(grid)]
