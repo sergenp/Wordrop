@@ -21,6 +21,7 @@ class Player:
 
     def reset_palette(self, palette=None):
         self.palette = palette
+        self.can_play = True
 
     def can_lock(self) -> bool:
         # initial lock timer + cooldown needs to be less than the current time,
@@ -31,9 +32,10 @@ class Player:
             return True
         return False
 
-    def steal_palette(self, player: "Player") -> bool:
+    def steal_palette(self, victim: "Player") -> bool:
         if self.can_lock():
-            self.add_to_palette(player.palette)
-            player.palette = []
+            self.add_to_palette(victim.palette)
+            victim.palette = []
+            victim.can_play = False
             return True
         return False

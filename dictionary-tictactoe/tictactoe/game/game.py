@@ -186,14 +186,26 @@ class Game:
         Returns:
             bool: Returns True if game is updated successfully, False if not.
         """
-        player = self.get_player(player)
+        player: Player = self.get_player(player)
         # if there is something at the spot of the [x][y], return False
-        if not player or self.game_state[x][y] or not (letter in player.palette):
+        if (
+            not player
+            or self.game_state[x][y]
+            or not (letter in player.palette)
+            or not player.can_play
+        ):
             return False
 
         # else put the letter
         self.game_state[x][y] = letter
         return True
+
+    def steal_palette(self, thief: Player, victim: Player) -> bool:
+        if not thief.can_play:
+            return False
+
+        if thief.steal_palette(victim):
+            return True
 
     def create_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> None:
         """Creates the task of given task_type

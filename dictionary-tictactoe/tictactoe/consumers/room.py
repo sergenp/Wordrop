@@ -97,19 +97,14 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
                 game_state.change_room_state(RoomState.GAME_ENDED)
 
         elif msg_type == PlayerState.STEAL_PALETTE:
-            player_name = payload["player"]
-            player_to_steal_from = game_state.get_player(player_name)
-            player_to_steal = game_state.get_player(self.channel_name)
-
-            print(player_to_steal_from.palette)
-            print(player_to_steal.palette)
-
-            if player_to_steal.steal_palette(player_to_steal_from):
+            victim = game_state.get_player(payload["player"])
+            thief = game_state.get_player(self.channel_name)
+            if game_state.steal_palette(thief, victim):
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
                         "type": "notify_palette_change",
-                        "players": game_state.get_players(),
+                        "players": self.get_players(),
                     },
                 )
 
