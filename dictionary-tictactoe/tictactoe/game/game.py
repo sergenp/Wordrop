@@ -200,12 +200,14 @@ class Game:
         self.game_state[x][y] = letter
         return True
 
-    def steal_palette(self, thief: Player, victim: Player) -> bool:
-        if not thief.can_play:
+    def steal_palette(self, thief_name: str, victim_name: str) -> bool:
+        thief = self.get_player(thief_name)
+        victim = self.get_player(victim_name)
+
+        if not thief or not victim or not thief.can_play:
             return False
 
-        if thief.steal_palette(victim):
-            return True
+        return thief.steal_palette(victim)
 
     def create_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> None:
         """Creates the task of given task_type
