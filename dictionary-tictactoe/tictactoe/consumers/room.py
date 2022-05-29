@@ -52,12 +52,17 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
 
     async def disconnect(self, close_code):
         game_state: Game = game_states[self.room_group_name]
-        game_state.remove_player(self.channel_name)
+        player = game_state.remove_player(self.channel_name)
         # if we remove both players, room_state becomes GAME_ABORTED
         if game_state.room_state == RoomState.GAME_ABORTED:
             # if the game ends this way, delete the game from our
             # game dictionary
             del game_states[self.room_group_name]
+        # send the group that channel_name is disconnected
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {"type": "notify_player_disconnected", "message": player.name},
+        )
         # Leave room group
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
@@ -114,7 +119,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(
             {
                 "type": GameStateEnum.GAME_STATE_SYNC,
-                "message": {"text": payload["message"]["game_data"]},
+                "message": payload["message"]["game_data"],
             }
         )
 
@@ -138,6 +143,14 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(
             {
                 "type": GameStateEnum.PALETTE_SYNC,
-                "message": payload,
+                "message": payload["players"],
+            },
+        )
+
+    async def notify_player_disconnected(self, payload: dict):
+        await self.send_json(
+            {
+                "type": PlayerState.DISCONNECTED,
+                "message": payload["message"],
             },
         )

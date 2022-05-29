@@ -12,7 +12,7 @@ class Game:
     def __init__(
         self,
         grid_size=10,
-        palette_change_cooldown=100,
+        palette_change_cooldown=10,
         palette_size=10,
         word_size=5,
         room_group_name=None,
@@ -30,7 +30,7 @@ class Game:
         self._tasks = []
 
     def to_json(self) -> dict:
-        return {"game_state": self.game_state}
+        return {"game_state": self.game_state, "players": self.get_players()}
 
     async def palette_changer(self):
         try:
@@ -46,6 +46,8 @@ class Game:
                     },
                 )
         except asyncio.CancelledError:
+            return
+        finally:
             return
 
     def change_room_state(
@@ -108,9 +110,7 @@ class Game:
         Returns:
             Player: Removed player
         """
-        player = self.get_player(name)
-
-        if not player:
+        if not (player := self.get_player(name)):
             return
 
         self.players.remove(player)
@@ -209,14 +209,20 @@ class Game:
 
         return thief.steal_palette(victim)
 
+    def get_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> Union[dict, None]:
+        return next((x for x in self._tasks if task_type == x["type"]), None)
+
     def create_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> None:
         """Creates the task of given task_type
 
         Args:
             task_type (Literal[GameTasks.PALETTE_TASK]): Type of the tasks to create
         """
+        # see if there is already a task in self._tasks, if there is no need to create another
+        if self.get_task(task_type):
+            return
+
         if task_type == GameTasks.PALETTE_TASK:
-            # loop = get_event_loop()
             palete_changer_task = asyncio.get_event_loop().create_task(self.palette_changer())
             self._tasks.append({"type": GameTasks.PALETTE_TASK, "task": palete_changer_task})
 
@@ -227,7 +233,11 @@ class Game:
             task_type (int): Type of the tasks to cancel
         """
         try:
-            task_dict = next(x for x in self._tasks if task_type == x["type"])
-            task_dict["task"].cancel()
+            if task_dict := self.get_task(task_type):
+                cancelled = task_dict["task"].cancel()
+                if cancelled:
+                    # if task is cancelled, delete the task from self._tasks
+                    self._tasks.remove(task_dict)
+
         except StopIteration:
             return
