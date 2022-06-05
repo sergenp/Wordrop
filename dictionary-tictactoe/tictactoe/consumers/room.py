@@ -59,10 +59,11 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             # game dictionary
             del game_states[self.room_group_name]
         # send the group that channel_name is disconnected
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {"type": "notify_player_disconnected", "message": player.name},
-        )
+        if player:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {"type": "notify_player_disconnected", "message": player.name},
+            )
         # Leave room group
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
@@ -75,6 +76,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
         if (
             msg_type == GameStateEnum.GAME_STATE_SYNC
             and game_state.room_state == RoomState.GAME_IN_PROGRESS
+            and game_state.get_player(self.channel_name).can_play
         ):
             # send received message to room
             x, y, letter = int(payload["x"]), int(payload["y"]), payload["letter"]
@@ -107,7 +109,7 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
                     self.room_group_name,
                     {
                         "type": "notify_palette_change",
-                        "players": self.get_players(),
+                        "players": game_state.get_players(),
                     },
                 )
 

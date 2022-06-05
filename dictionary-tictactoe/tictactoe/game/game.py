@@ -102,7 +102,7 @@ class Game:
 
         return player
 
-    def remove_player(self, name: str) -> Player:
+    def remove_player(self, name: str) -> Union[Player, None]:
         """Removes given name from self.players list, and changes the room_state accordingly
 
         Args:
