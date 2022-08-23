@@ -3,8 +3,6 @@ import string
 
 from django.conf import settings
 
-words = {}
-
 with open(settings.BASE_DIR / "tictactoe" / "util" / "words.txt") as f:
     words = set(f.read().lower().splitlines())
 

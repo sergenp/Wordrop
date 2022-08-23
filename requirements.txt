@@ -30,3 +30,5 @@ txaio==22.2.1
 typing_extensions==4.2.0
 tzdata==2022.1
 zope.interface==5.4.0
+StrEnum==0.4.8
+dj-database-url==1.0.0

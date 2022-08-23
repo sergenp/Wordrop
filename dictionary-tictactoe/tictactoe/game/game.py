@@ -1,25 +1,22 @@
-import asyncio
 from typing import List, Literal, Union
 
 from tictactoe.util.matrix import create_grid, get_cols, get_rows
 from tictactoe.util.palette import check_if_word, generate_random_palette
 
-from .enums import GameTasks, RoomState
+from .enums import RoomState
 from .player import Player
 
 
 class Game:
     def __init__(
         self,
-        grid_size=10,
-        palette_change_cooldown=10,
-        palette_size=10,
-        word_size=5,
-        room_group_name=None,
-        channel_layer=None,
+        grid_size: int = 10,
+        palette_change_cooldown: int = 10,
+        palette_size: int = 10,
+        word_size: int = 5,
+        room_group_name: str = None,
     ) -> None:
         self.room_group_name = room_group_name
-        self.channel_layer = channel_layer
         self.word_size = word_size
         self.palette_size = palette_size
         self.grid_size = grid_size
@@ -27,57 +24,28 @@ class Game:
         self.game_state = create_grid(self.grid_size, self.grid_size)
         self.room_state = RoomState.IN_LOBBY
         self.players = []
-        self._tasks = []
 
     def to_json(self) -> dict:
         return {"game_state": self.game_state, "players": self.get_players()}
-
-    async def palette_changer(self):
-        try:
-            while self.room_state == RoomState.GAME_IN_PROGRESS:
-                await asyncio.sleep(self.palette_change_cooldown)
-                for player in self.players:
-                    player.reset_palette(generate_random_palette(self.palette_size))
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        "type": "notify_palette_change",
-                        "players": self.get_players(),
-                    },
-                )
-        except asyncio.CancelledError:
-            return
-        finally:
-            return
 
     def change_room_state(
         self,
         state: Literal[
             RoomState.IN_LOBBY,
-            RoomState.GAME_START,
             RoomState.GAME_IN_PROGRESS,
             RoomState.GAME_ENDED,
             RoomState.GAME_ABORTED,
         ],
-    ):
+    ) -> None:
         """Changes the self.room_state to state
         and cancels all tasks if roomstate changes to game aborted or ended
 
         Args:
-            state (Literal[ RoomState.IN_LOBBY, RoomState.GAME_STARTED, RoomState.GAME_IN_PROGRESS, RoomState.GAME_ENDED, RoomState.GAME_ABORTED, ]): State of the room that you want to self.room_state to be in
+            state (Literal[ RoomState.IN_LOBBY, RoomState.GAME_IN_PROGRESS, RoomState.GAME_ENDED, RoomState.GAME_ABORTED, ]): State of the room that you want to self.room_state to be in
         """
         self.room_state = state
 
-        if self.room_state in [RoomState.GAME_ABORTED, RoomState.GAME_ENDED]:
-            # abort every task if game ends
-            for task_dict in self._tasks:
-                task_dict["task"].cancel()
-
-        elif self.room_state == RoomState.IN_LOBBY:
-            # abort the palette task
-            self.cancel_task(GameTasks.PALETTE_TASK)
-
-    def reset_game_state(self):
+    def reset_game_state(self) -> None:
         """Resets game state back to it's original state"""
         self.game_state = create_grid(self.grid_size, self.grid_size)
 
@@ -90,15 +58,15 @@ class Game:
         Returns:
             Player: Added player
         """
-        # don't add new players if the game is started
-        if self.room_state == RoomState.GAME_START:
+        # don't add new players if the game is in progress
+        if self.room_state == RoomState.GAME_IN_PROGRESS:
             return
 
         player = Player(name, generate_random_palette(self.palette_size))
         self.players.append(player)
 
         if len(self.players) == 2:
-            self.change_room_state(RoomState.GAME_START)
+            self.change_room_state(RoomState.GAME_IN_PROGRESS)
 
         return player
 
@@ -151,7 +119,7 @@ class Game:
         Returns:
             bool: Returns true if one of the diagonals, columns or rows have the same elements
         """
-        # TODO: game end logic
+
         rows = get_rows(self.game_state)
         cols = get_cols(self.game_state)
 
@@ -162,6 +130,7 @@ class Game:
                     break
                 word = "".join(row[i : i + self.word_size]).lower()
                 if word and len(word) == self.word_size and check_if_word(word):
+                    self.change_room_state(RoomState.GAME_ENDED)
                     return True
 
         for col in cols:
@@ -171,6 +140,7 @@ class Game:
                     break
                 word = "".join(col[i : i + self.word_size]).lower()
                 if word and len(word) == self.word_size and check_if_word(word):
+                    self.change_room_state(RoomState.GAME_ENDED)
                     return True
 
         return False
@@ -208,36 +178,3 @@ class Game:
             return False
 
         return thief.steal_palette(victim)
-
-    def get_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> Union[dict, None]:
-        return next((x for x in self._tasks if task_type == x["type"]), None)
-
-    def create_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> None:
-        """Creates the task of given task_type
-
-        Args:
-            task_type (Literal[GameTasks.PALETTE_TASK]): Type of the tasks to create
-        """
-        # see if there is already a task in self._tasks, if there is no need to create another
-        if self.get_task(task_type):
-            return
-
-        if task_type == GameTasks.PALETTE_TASK:
-            palete_changer_task = asyncio.get_event_loop().create_task(self.palette_changer())
-            self._tasks.append({"type": GameTasks.PALETTE_TASK, "task": palete_changer_task})
-
-    def cancel_task(self, task_type: Literal[GameTasks.PALETTE_TASK]) -> None:
-        """Cancels the task with given task_type
-
-        Args:
-            task_type (int): Type of the tasks to cancel
-        """
-        try:
-            if task_dict := self.get_task(task_type):
-                cancelled = task_dict["task"].cancel()
-                if cancelled:
-                    # if task is cancelled, delete the task from self._tasks
-                    self._tasks.remove(task_dict)
-
-        except StopIteration:
-            return
