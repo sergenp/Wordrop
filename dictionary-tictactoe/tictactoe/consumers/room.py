@@ -1,33 +1,45 @@
 from typing import List
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
-from tictactoe.game import Game, GameStateEnum, GameTasks, PlayerState, RoomState
+from django.db.utils import IntegrityError
+from tictactoe.game import GameStateEnum, PlayerState, RoomState
+from tictactoe.helper import GameManagerMixin
 
-game_states = {}
+# in memory game states, game state data is saved when the game ends or it starts
 
 
-class RoomConsumer(AsyncJsonWebsocketConsumer):
+class RoomConsumer(GameManagerMixin, AsyncJsonWebsocketConsumer):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
     async def connect(self):
         self.room_group_name = f"room_{self.scope['url_route']['kwargs']['room_id']}"
         # if there is a game_state on websocket connect,
         # try getting the game state
-        game_state: Game = game_states.get(self.room_group_name, None)
-        if not game_state:
-            # if no game state is present, (you're the first to join the room)
-            # create a new game state
-            game_state = Game(
-                room_group_name=self.room_group_name, channel_layer=self.channel_layer
-            )
-            game_states[self.room_group_name] = game_state
-
-        if game_state.room_state not in [RoomState.IN_LOBBY, RoomState.GAME_ENDED]:
-            # if the game is started or ended,
-            # don't accept anymore connections to this room
+        try:
+            game, _ = await self.get_or_create_game(self.room_group_name)
+        except IntegrityError:
             await self.close()
             return
+
+        # if the game state is ended, in progress or aborted, close the connection
+        if game.room_state in [
+            RoomState.GAME_ENDED,
+            RoomState.GAME_IN_PROGRESS,
+            RoomState.GAME_ABORTED,
+        ]:
+            await self.close()
+            return
+
         # add the player
-        player = game_state.create_player(self.channel_name)
-        # Join room if game is still in lobby
+        player = await self.create_player(self.room_group_name, self.channel_name)
+
+        # if the player is not created, disconnect the socket
+        if not player:
+            await self.close()
+            return
+
+        # Join room if player is successfully created
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
@@ -38,26 +50,22 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
             }
         )
 
-        if game_state.room_state == RoomState.GAME_START:
-            # send the initial game state to players if the game is started
+        if game.room_state == RoomState.GAME_IN_PROGRESS:
+            # send the initial game state to players if the game is in progress
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     "type": "start_game",
-                    "message": game_state.to_json(),
+                    "message": game.to_json(),
                 },
             )
-            game_state.change_room_state(RoomState.GAME_IN_PROGRESS)
-            game_state.create_task(GameTasks.PALETTE_TASK)
+
+        # TODO, being able to watch an ongoing game?
 
     async def disconnect(self, close_code):
-        game_state: Game = game_states[self.room_group_name]
-        player = game_state.remove_player(self.channel_name)
-        # if we remove both players, room_state becomes GAME_ABORTED
-        if game_state.room_state == RoomState.GAME_ABORTED:
-            # if the game ends this way, delete the game from our
-            # game dictionary
-            del game_states[self.room_group_name]
+        player, _ = await self.remove_player_from_game(self.room_group_name, self.channel_name)
+
+        # if only one player leaves
         # send the group that channel_name is disconnected
         if player:
             await self.channel_layer.group_send(
@@ -70,48 +78,49 @@ class RoomConsumer(AsyncJsonWebsocketConsumer):
     # this function receives messages from the client
     # payload is a python dictionary
     async def receive_json(self, payload: dict):
-
-        game_state: Game = game_states[self.room_group_name]
         msg_type = int(payload["type"])
-        if (
-            msg_type == GameStateEnum.GAME_STATE_SYNC
-            and game_state.room_state == RoomState.GAME_IN_PROGRESS
-            and game_state.get_player(self.channel_name).can_play
-        ):
-            # send received message to room
-            x, y, letter = int(payload["x"]), int(payload["y"]), payload["letter"]
-            is_updated = game_state.update_game(x, y, self.channel_name, letter)
-            is_finished = game_state.check_for_game_finish()
-            game_data = game_state.to_json()
 
-            if is_updated:
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        "type": "update_game_state",
-                        "message": {"game_data": game_data},
-                    },
+        match msg_type:
+            case GameStateEnum.GAME_STATE_SYNC:
+                can_continue = await self.can_game_continue(self.room_group_name, self.channel_name)
+                if not can_continue:
+                    return
+                # send received message to room
+                x, y, letter = int(payload["x"]), int(payload["y"]), payload["letter"]
+
+                is_updated, is_finished, game_data = await self.update_game(
+                    self.room_group_name, x, y, self.channel_name, letter
                 )
 
-            if is_finished:
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        "type": "notify_game_ended",
-                        "message": {"winner": self.channel_name},
-                    },
-                )
-                game_state.change_room_state(RoomState.GAME_ENDED)
+                if is_updated:
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "update_game_state",
+                            "message": {"game_data": game_data},
+                        },
+                    )
 
-        elif msg_type == PlayerState.STEAL_PALETTE:
-            if game_state.steal_palette(self.channel_name, payload["player"]):
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        "type": "notify_palette_change",
-                        "players": game_state.get_players(),
-                    },
-                )
+                if is_finished:
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "notify_game_ended",
+                            "message": {"winner": self.channel_name},
+                        },
+                    )
+
+            case PlayerState.STEAL_PALETTE:
+                if await self.steal_palette(
+                    self.room_group_name, self.channel_name, payload["player"]
+                ):
+                    await self.channel_layer.group_send(
+                        self.room_group_name,
+                        {
+                            "type": "notify_palette_change",
+                            "players": await self.get_players(self.room_group_name),
+                        },
+                    )
 
     # Receive message from room group
     async def update_game_state(self, payload: dict):

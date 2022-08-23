@@ -201,6 +201,20 @@
         function addSelectLetterEmitter(player, td, letter) {
             td.onclick = () => player.letter = letter
         }
+
+        function hideStolenPaletteHtml(hide) {
+            if (hide) {                
+                document.querySelector("#stolen-palette-table").style.display = "block";
+                document.querySelector("#opponent-palette-table").style.display = "none";
+                document.querySelector("#palette-table").style.display = "none";
+            }
+            else {
+                document.querySelector("#stolen-palette-table").style.display = "none";
+                document.querySelector("#opponent-palette-table").style.display = "block";
+                document.querySelector("#palette-table").style.display = "block";
+            }
+
+        }
         
         var wsStart = window.location.protocol == 'https:' ? 'wss://' : 'ws://'
         
@@ -282,9 +296,7 @@
                 players.forEach(
                     (e) => {
                         if (e["palette"].length == 0) {
-                            document.querySelector("#stolen-palette-table").style.display = "block";
-                            document.querySelector("#opponent-palette-table").style.display = "none";
-                            document.querySelector("#palette-table").style.display = "none";
+                            hideStolenPaletteHtml(true);
                         }
                         else if (e["palette"].length == 20) {
                             syncStolenPaletteData(e["palette"])
@@ -299,11 +311,9 @@
                         }
 
                         else if (e["palette"].length == 10) {
-                            document.querySelector("#stolen-palette-table").style.display = "none";
-                            document.querySelector("#opponent-palette-table").style.display = "block";
-                            document.querySelector("#palette-table").style.display = "block";
+                            hideStolenPaletteHtml(false);
                             player.can_play = true
-                            // TODO, fix this for more than 2 players 
+                            // TODO: fix this for more than 2 players 
                             if(e["name"] === player.name){
                                 // set the player palette
                                 player.palette = e["palette"]
